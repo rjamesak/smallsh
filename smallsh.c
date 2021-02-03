@@ -18,6 +18,7 @@ struct userInput* parseInput(char* inputLine);
 void freeInputStruct(struct userInput* inputStruct);
 void checkSpecialSymbols(struct userInput* inputStruct);
 void expandVariables(struct userInput* inputStruct);
+void expandVarInCommand(struct userInput* inputStruct);
 
 int main(int argc, const char* argv[]) {
 	// create a command line
@@ -72,6 +73,7 @@ struct userInput* parseInput(char* inputLine)
 	// check for special chars
 	checkSpecialSymbols(parsedInput);
 	expandVariables(parsedInput);
+	expandVarInCommand(parsedInput);
 
 	return parsedInput;
 }
@@ -143,7 +145,7 @@ void expandVariables(struct userInput* inputStruct) {
 	char pidString[8] = { "\0" };
 	// loop args and change $$ to processID
 	for (int i = 0; i < inputStruct->argCount; i++) {
-		// strtok method
+
 		while ((substrPtr = strstr(inputStruct->arguments[i], findVar)) != NULL) {
 			// get length of word before $$
 			int prefixLength = substrPtr - inputStruct->arguments[i];
@@ -165,6 +167,32 @@ void expandVariables(struct userInput* inputStruct) {
 			inputStruct->arguments[i] = newWord;
 		}
 	}
+}
+
+void expandVarInCommand(struct userInput* inputStruct) {
+	char* findVar = "$$";
+	char* substrPtr = NULL;
+	char pidString[8] = { "\0" };
+		while ((substrPtr = strstr(inputStruct->command, findVar)) != NULL) {
+			// get length of word before $$
+			int prefixLength = substrPtr - inputStruct->command;
+			// get pid and convert to string
+			int pid = getpid();
+			sprintf(pidString, "%d", pid);
+			// copy prefix and expanded variable
+			char* newWord = calloc(strlen(inputStruct->command) + strlen(pidString), sizeof(char));
+			strncpy(newWord, inputStruct->command,  prefixLength);
+			// append pid
+			strcat(newWord, pidString);
+			// append remaining, if exists
+			if (substrPtr + 2 != '\0') {
+				strcat(newWord, substrPtr + 2);
+			}
+			// replace the command with the newWord
+			free(inputStruct->command);
+			inputStruct->command = newWord;
+		}
+
 }
 
 void freeInputStruct(struct userInput* inputStruct)
