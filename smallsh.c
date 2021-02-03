@@ -34,6 +34,7 @@ int main(int argc, const char* argv[]) {
 		printf(": ");
 		getline(&input, &inputLength, stdin);
 		userInput = parseInput(input);
+		// action based on input
 	} while (strncmp(userInput->command, exit, 4) != 0);
 
 	// clean input struct
@@ -55,10 +56,16 @@ struct userInput* parseInput(char* inputLine)
 	parsedInput->redirectOut = 0;
 	
 	// use strtok to parse the input line
+	char* comment = "#";
+	char* newline = "\n";
 	char* savePtr;
 	char* token = strtok_r(inputLine, " ", &savePtr);
 	// first input is the command
 	parsedInput->command = strdup(token);
+	// check if comment
+	//if (strcmp(token, comment) == 0 || strcmp(token, newline) == 0) {
+	//	return parsedInput;
+	//}
 
 	// loop to store the remaining arguments
 	parsedInput->arguments = calloc(513, sizeof(char*)); //create array of char ptrs
