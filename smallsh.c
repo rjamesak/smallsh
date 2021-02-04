@@ -19,16 +19,26 @@ void freeInputStruct(struct userInput* inputStruct);
 void checkSpecialSymbols(struct userInput* inputStruct);
 void expandVariables(struct userInput* inputStruct);
 void expandVarInCommand(struct userInput* inputStruct);
+void changeDirs(struct userInput* userInput);
+void printDir();
 
 int main(int argc, const char* argv[]) {
 	// create a command line
 	char* input = NULL;
 	char* exit = "exit";
+	char* cd = "cd\0";
+	char* pwd = "pwd\0";
 	size_t inputLength; 
 	//ssize_t nread;
 	struct userInput* userInput = NULL;
 	do {
 		if (userInput) { 
+			if (strncmp(userInput->command, cd, 2) == 0) {
+				changeDirs(userInput);
+			}
+			else if (strncmp(userInput->command, pwd, 3) == 0) {
+				printDir();
+			}
 			freeInputStruct(userInput); 
 		};
 		printf(": ");
@@ -56,11 +66,17 @@ struct userInput* parseInput(char* inputLine)
 	parsedInput->redirectOut = 0;
 	
 	// use strtok to parse the input line
-	char* comment = "#";
-	char* newline = "\n";
+	//char* comment = "#";
+	//char* newline = "\n";
 	char* savePtr;
 	char* token = strtok_r(inputLine, " ", &savePtr);
 	// first input is the command
+	// check for trailing newline, but not if first character
+	// https://aticleworld.com/remove-trailing-newline-character-from-fgets/
+	char* newline = strchr(token, '\n');
+	if (newline  && newline != inputLine) {
+		*newline = '\0';
+	}
 	parsedInput->command = strdup(token);
 	// check if comment
 	//if (strcmp(token, comment) == 0 || strcmp(token, newline) == 0) {
@@ -71,6 +87,14 @@ struct userInput* parseInput(char* inputLine)
 	parsedInput->arguments = calloc(513, sizeof(char*)); //create array of char ptrs
 	int i = 0;
 	while ((token = strtok_r(NULL, " ", &savePtr)) != NULL) {
+		// replace newline with null unless it's the only arg
+		newline = strchr(token, '\n');
+		if (newline && newline != token) {
+			*newline = '\0';
+		}
+		else if (newline) {
+			break;
+		}
 		// store each arg
 		parsedInput->arguments[i] = strdup(token);
 		i++;
@@ -200,6 +224,42 @@ void expandVarInCommand(struct userInput* inputStruct) {
 			inputStruct->command = newWord;
 		}
 
+}
+
+
+void changeDirs(struct userInput* userInput) {
+	// if no args, change to home env variable
+	char* home = "HOME";
+	char* homePath = NULL;
+	//char* newPath  = NULL;
+	int result = 0;
+	if (!userInput->argCount) {
+		homePath = getenv(home);
+		result  = chdir(homePath);
+		if (result == -1) {
+			perror("unable to change to home path\n");
+		}
+		printDir();
+	}
+	// if  arg, change to the specified directory, absolute  or relative paths
+	else  if (userInput->argCount) {
+		result = chdir(userInput->arguments[0]);
+		if (result == -1) {
+			perror("unable to change to directory\n");
+		}
+		printDir();
+
+	}
+
+	return;
+}
+
+void printDir() {
+	// https://stackoverflow.com/questions/298510/how-to-get-the-current-directory-in-a-c-program
+	char curPath[512];
+	getcwd(curPath, sizeof(curPath));
+	printf("current directory: %s\n", curPath);
+	return;
 }
 
 void freeInputStruct(struct userInput* inputStruct)
