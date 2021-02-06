@@ -16,9 +16,16 @@ struct userInput {
 	int isBackground;
 };
 
-struct bgList {
+struct bgListNode {
 	int pid;
-	struct bgList* next;
+	struct bgListNode* next;
+	struct bgListNode* prev;
+};
+
+struct bgList {
+	struct bgListNode* head;
+	struct bgListNode* tail;
+	int bgProcesses;
 };
 
 struct userInput* parseInput(char* inputLine);
@@ -28,6 +35,10 @@ void expandVariables(struct userInput* inputStruct);
 void expandVarInCommand(struct userInput* inputStruct);
 void changeDirs(struct userInput* userInput);
 void printDir();
+struct bgList* addToBgList(struct bgList* list, int childPid);
+struct bgList* removeFromBgList(struct bgList* list, struct bgListNode* deadNode);
+//struct bgList* addBgList(struct bgList* head, struct bgList* tail, int childPid);
+//struct bgList* removeNode(struct bgListNode* deadNode, struct bgList* head, struct bgList* tail);
 
 int main(int argc, const char* argv[]) {
 	// create a command line
@@ -37,10 +48,13 @@ int main(int argc, const char* argv[]) {
 	//char* stat = "status\0";
 	char* comment= "#\0";
 	char* newline = "\n\0";
-	//int bgArr[256] = { '\0' };
-	struct bgList* head = NULL;
-	struct bgList* tail = NULL;
-	int bgProcesses = 0;
+	struct bgList* bgPids = malloc(sizeof(struct bgList));
+	bgPids->head = NULL;
+	bgPids->tail = NULL;
+	bgPids->bgProcesses = 0;
+	int childStatus;
+	//struct bgList* head = NULL;
+	//struct bgList* tail = NULL;
 	size_t inputLength; 
 	//ssize_t nread;
 	struct userInput* userInput = NULL;
@@ -55,7 +69,6 @@ int main(int argc, const char* argv[]) {
 			else if (!(strncmp(userInput->command, comment, 1) == 0) && !(strncmp(userInput->command, newline, 1) == 0)) {
 				//printf("not comment, cd, pwd, or newline. gonna fork exec here.\n");
 				// fork new process
-				int childStatus;
 				pid_t childPid = fork();
 				switch (childPid) {
 				case -1:
@@ -87,46 +100,46 @@ int main(int argc, const char* argv[]) {
 					}
 					// if background, add to background list, and print pid
 					else if (userInput->isBackground) {
-						// init list 
-						if (head == NULL) {
-							struct bgList* node = malloc(sizeof(struct bgList));
-							node->pid = childPid;
-							node->next = NULL;
-							head = node;
-							tail = node;
-						}
-						else {
-							struct bgList* node = malloc(sizeof(struct bgList));
-							node->pid = childPid;
-							node->next = NULL;
-							tail->next = node; // point prev tail to this new node
-							tail = node; // set as new tail
-						}
-						// bgArr[bgProcesses] = childPid;
-						bgProcesses++;
+						// init list, add to bg list
+						bgPids = addToBgList(bgPids, childPid);
+						//head = addBgList(head, tail, childPid);
+						bgPids->bgProcesses++;
 						printf("Background Process %d started...\n", childPid);
-					}
-					// loop background list, waitpid NOHANG
-					struct bgList* node = head;
-					while (node != NULL) {
-						childPid = waitpid(node->pid, &childStatus, WNOHANG);
-						if (childPid) {
-							printf("Background process %d terminated with status \n", childPid);
-							bgProcesses--;
-							// delete the node from the list
-							// if head, make next one head
-							// if not head, make prev->next = node->next
-							// make removeNode fn
-						}
 					}
 					break;
 				}
 
 				// be sure to terminate the child on fail
-			}
+			} // end forking/exec code
 			freeInputStruct(userInput); 
-		};
+		}; // end if userInput
+
 		// reap background processes and print when terminated here ? waitpid(...NOHANG...)
+		// loop background list, waitpid NOHANG
+		struct bgListNode* node = bgPids->head; // list iterator
+		int removed = 0;
+		while (node != NULL) {
+			int childPid = waitpid(node->pid, &childStatus, WNOHANG);
+			if (childPid) {
+				printf("Background process %d terminated with status %d\n", childPid, childStatus);
+				bgPids->bgProcesses--;
+				// delete the node from the list
+				bgPids = removeFromBgList(bgPids, node);
+				//head = removeNode(node, head, tail);
+				removed = 1;
+			}
+			if (!removed) {
+				// continue with loop
+				node = node->next;
+			}
+			else {
+				// reset loop to beginning
+				node = bgPids->head;
+				removed = 0;
+			}
+		}
+
+
 		printf(": ");
 		getline(&input, &inputLength, stdin);
 		userInput = parseInput(input);
@@ -137,6 +150,7 @@ int main(int argc, const char* argv[]) {
 	//free(input);
 	free(input);
 	freeInputStruct(userInput);
+	free(bgPids);
 
 	// kill any running ps or jobs
 
@@ -166,12 +180,8 @@ struct userInput* parseInput(char* inputLine)
 		*newline = '\0';
 	}
 	parsedInput->command = strdup(token);
-	// check if comment
-	//if (strcmp(token, comment) == 0 || strcmp(token, newline) == 0) {
-	//	return parsedInput;
-	//}
 
-	// loop to store the remaining arguments
+	// loop to store arguments
 	parsedInput->arguments = calloc(513, sizeof(char*)); //create array of char ptrs
 	int i = 0;
 	while ((token = strtok_r(NULL, " ", &savePtr)) != NULL) {
@@ -199,7 +209,7 @@ struct userInput* parseInput(char* inputLine)
 
 
 void checkSpecialSymbols(struct userInput* inputStruct) {
-	char* amp = "&\n";
+	char* amp = "&\0";
 	int args = inputStruct->argCount;
 	char* greater = ">\0";
 	char* lessThan = "<\0";
@@ -235,8 +245,6 @@ void checkSpecialSymbols(struct userInput* inputStruct) {
 	int  lastArg = (inputStruct->argCount) - 1;
 	if (args && strcmp(inputStruct->arguments[lastArg], amp) == 0) {
 		inputStruct->isBackground = 1;
-		// remove from arg list
-		//inputStruct->arguments[lastArg] = "\0";
 	}
 
 	// free memory from special args
@@ -349,6 +357,107 @@ void printDir() {
 	printf("current directory: %s\n", curPath);
 	return;
 }
+
+
+//struct bgList* addBgList(struct bgList* head, struct bgList* tail, int childPid) {
+//	// if empty, create new first node
+//	if (head == NULL) {
+//		struct bgList* node = malloc(sizeof(struct bgList));
+//		node->pid = childPid;
+//		node->next = NULL;
+//		node->prev = NULL;
+//		head = node;
+//		tail = node;
+//	}
+//	else { // at least one node exists, grow the list
+//		struct bgList* node = malloc(sizeof(struct bgList));
+//		node->pid = childPid;
+//		node->next = NULL;
+//		// point prev tail to this new node
+//		tail->next = node; 
+//		tail = node; // set as new tail
+//	}
+//	return head;
+//}
+
+struct bgList* addToBgList(struct bgList* list, int childPid) {
+	if (list->head == NULL) {
+		struct bgListNode* node = malloc(sizeof(struct bgListNode));
+		node->pid = childPid;
+		node->next = NULL;
+		node->prev = NULL;
+		list->head = node;
+		list->tail = node;
+	}
+	else { // at least one node exists, grow the list
+		struct bgListNode* node = malloc(sizeof(struct bgListNode));
+		node->pid = childPid;
+		node->next = NULL;
+		// point prev tail to this new node
+		list->tail->next = node;
+		list->tail = node; // set as new tail
+	}
+	return list;
+}
+
+struct bgList* removeFromBgList(struct bgList* list, struct bgListNode* deadNode) {
+	if (deadNode != list->head) {
+		deadNode->prev->next = deadNode->next;
+		// connect next to prev
+		if (deadNode != list->tail) {
+			deadNode->next->prev = deadNode->prev;
+		}
+		// is tail node (and not head), set prev to new tail
+		else {
+			list->tail = deadNode->prev;
+		}
+	}
+	// is head
+	else {
+		// head but not tail
+		if (deadNode != list->tail) {
+			list->head = deadNode->next;
+			list->head->prev = NULL;
+		}
+		// head and tail
+		else {
+			list->head = NULL;
+			list->tail = NULL;
+		}
+	}
+	free(deadNode);
+	return list;
+
+}
+
+//struct bgList* removeNode(struct bgList* deadNode, struct bgList* head, struct bgList* tail) {
+//	// if has prev (not head), connect prev to next
+//	if (deadNode != head) {
+//		deadNode->prev->next = deadNode->next;
+//		// connect next to prev
+//		if (deadNode != tail) {
+//			deadNode->next->prev = deadNode->prev;
+//		}
+//		// if tail, set prev to new tail
+//		else {
+//			tail = deadNode->prev;
+//		}
+//	}
+//	// is head node
+//	else {
+//		if (deadNode != tail) {
+//			head = deadNode->next;
+//			head->prev = NULL;
+//		}
+//		// deadNode == head and tail (only node), set head and tail to null
+//		else {
+//			head = NULL;
+//			tail = NULL;
+//		}
+//	}
+//	free(deadNode);
+//	return head;
+//}
 
 //  clean up the input  struct
 void freeInputStruct(struct userInput* inputStruct)
