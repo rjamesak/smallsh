@@ -16,6 +16,11 @@ struct userInput {
 	int isBackground;
 };
 
+struct bgList {
+	int pid;
+	struct bgList* next;
+};
+
 struct userInput* parseInput(char* inputLine);
 void freeInputStruct(struct userInput* inputStruct);
 void checkSpecialSymbols(struct userInput* inputStruct);
@@ -29,9 +34,13 @@ int main(int argc, const char* argv[]) {
 	char* input = NULL;
 	char* exitCmd = "exit";
 	char* cd = "cd\0";
-	char* pwd = "pwd\0";
+	//char* stat = "status\0";
 	char* comment= "#\0";
 	char* newline = "\n\0";
+	//int bgArr[256] = { '\0' };
+	struct bgList* head = NULL;
+	struct bgList* tail = NULL;
+	int bgProcesses = 0;
 	size_t inputLength; 
 	//ssize_t nread;
 	struct userInput* userInput = NULL;
@@ -40,13 +49,13 @@ int main(int argc, const char* argv[]) {
 			if (strncmp(userInput->command, cd, 2) == 0) {
 				changeDirs(userInput);
 			}
-			else if (strncmp(userInput->command, pwd, 3) == 0) {
-				printDir();
-			}
+			//else if (strncmp(userInput->command, status, 6) == 0) {
+				//printDir();
+			//}
 			else if (!(strncmp(userInput->command, comment, 1) == 0) && !(strncmp(userInput->command, newline, 1) == 0)) {
-				printf("not comment, cd, pwd, or newline. gonna fork exec here.\n");
-				int childStatus;
+				//printf("not comment, cd, pwd, or newline. gonna fork exec here.\n");
 				// fork new process
+				int childStatus;
 				pid_t childPid = fork();
 				switch (childPid) {
 				case -1:
@@ -71,8 +80,45 @@ int main(int argc, const char* argv[]) {
 					break;
 				default:
 					//parent process
-					childPid = waitpid(childPid, &childStatus, 0);
-					printf("parent(%d): child(%d) terminated.\n", getpid(), childPid);
+					// if foreground, waitpid
+					// foreground
+					if (!userInput->isBackground) {
+						childPid = waitpid(childPid, &childStatus, 0); // waits for child
+					}
+					// if background, add to background list, and print pid
+					else if (userInput->isBackground) {
+						// init list 
+						if (head == NULL) {
+							struct bgList* node = malloc(sizeof(struct bgList));
+							node->pid = childPid;
+							node->next = NULL;
+							head = node;
+							tail = node;
+						}
+						else {
+							struct bgList* node = malloc(sizeof(struct bgList));
+							node->pid = childPid;
+							node->next = NULL;
+							tail->next = node; // point prev tail to this new node
+							tail = node; // set as new tail
+						}
+						// bgArr[bgProcesses] = childPid;
+						bgProcesses++;
+						printf("Background Process %d started...\n", childPid);
+					}
+					// loop background list, waitpid NOHANG
+					struct bgList* node = head;
+					while (node != NULL) {
+						childPid = waitpid(node->pid, &childStatus, WNOHANG);
+						if (childPid) {
+							printf("Background process %d terminated with status \n", childPid);
+							bgProcesses--;
+							// delete the node from the list
+							// if head, make next one head
+							// if not head, make prev->next = node->next
+							// make removeNode fn
+						}
+					}
 					break;
 				}
 
@@ -80,6 +126,7 @@ int main(int argc, const char* argv[]) {
 			}
 			freeInputStruct(userInput); 
 		};
+		// reap background processes and print when terminated here ? waitpid(...NOHANG...)
 		printf(": ");
 		getline(&input, &inputLength, stdin);
 		userInput = parseInput(input);
@@ -90,6 +137,8 @@ int main(int argc, const char* argv[]) {
 	//free(input);
 	free(input);
 	freeInputStruct(userInput);
+
+	// kill any running ps or jobs
 
 }
 
