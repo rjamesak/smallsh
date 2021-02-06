@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 struct userInput {
 	char* command;
@@ -25,9 +27,11 @@ void printDir();
 int main(int argc, const char* argv[]) {
 	// create a command line
 	char* input = NULL;
-	char* exit = "exit";
+	char* exitCmd = "exit";
 	char* cd = "cd\0";
 	char* pwd = "pwd\0";
+	char* comment= "#\0";
+	char* newline = "\n\0";
 	size_t inputLength; 
 	//ssize_t nread;
 	struct userInput* userInput = NULL;
@@ -39,13 +43,48 @@ int main(int argc, const char* argv[]) {
 			else if (strncmp(userInput->command, pwd, 3) == 0) {
 				printDir();
 			}
+			else if (!(strncmp(userInput->command, comment, 1) == 0) && !(strncmp(userInput->command, newline, 1) == 0)) {
+				printf("not comment, cd, pwd, or newline. gonna fork exec here.\n");
+				int childStatus;
+				// fork new process
+				pid_t childPid = fork();
+				switch (childPid) {
+				case -1:
+					perror("fork() failed\n");
+					exit(1);
+					break;
+				case 0:; // https://www.educative.io/edpresso/resolving-the-a-label-can-only-be-part-of-a-statement-error
+					// run the command
+					// build the arg array, size of args + 1 for command + 1 for NULL
+					char** execArgs;
+					execArgs = calloc(userInput->argCount + 2, sizeof(char*));
+					execArgs[0] = userInput->command;
+					for (int i = 1; i < userInput->argCount + 1; i++) {
+						execArgs[i] = userInput->arguments[i - 1];
+					}
+					execArgs[userInput->argCount + 1] = NULL; // how to clean memory if doesn't return?
+					// recommended use execlp() or execvp()
+					execvp(userInput->command, execArgs);
+					// exec returns if error
+					perror("execvp error\n");
+					exit(2);
+					break;
+				default:
+					//parent process
+					childPid = waitpid(childPid, &childStatus, 0);
+					printf("parent(%d): child(%d) terminated.\n", getpid(), childPid);
+					break;
+				}
+
+				// be sure to terminate the child on fail
+			}
 			freeInputStruct(userInput); 
 		};
 		printf(": ");
 		getline(&input, &inputLength, stdin);
 		userInput = parseInput(input);
 		// action based on input
-	} while (strncmp(userInput->command, exit, 4) != 0);
+	} while (strncmp(userInput->command, exitCmd, 4) != 0);
 
 	// clean input struct
 	//free(input);
@@ -262,6 +301,7 @@ void printDir() {
 	return;
 }
 
+//  clean up the input  struct
 void freeInputStruct(struct userInput* inputStruct)
 {
 	// free the command
