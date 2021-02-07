@@ -37,15 +37,14 @@ void changeDirs(struct userInput* userInput);
 void printDir();
 struct bgList* addToBgList(struct bgList* list, int childPid);
 struct bgList* removeFromBgList(struct bgList* list, struct bgListNode* deadNode);
-//struct bgList* addBgList(struct bgList* head, struct bgList* tail, int childPid);
-//struct bgList* removeNode(struct bgListNode* deadNode, struct bgList* head, struct bgList* tail);
+void displayStatus(int status);
 
 int main(int argc, const char* argv[]) {
 	// create a command line
 	char* input = NULL;
 	char* exitCmd = "exit";
 	char* cd = "cd\0";
-	//char* stat = "status\0";
+	char* stat = "status\0";
 	char* comment= "#\0";
 	char* newline = "\n\0";
 	struct bgList* bgPids = malloc(sizeof(struct bgList));
@@ -53,6 +52,7 @@ int main(int argc, const char* argv[]) {
 	bgPids->tail = NULL;
 	bgPids->bgProcesses = 0;
 	int childStatus;
+	int lastForegroundStatus = 0;
 	//struct bgList* head = NULL;
 	//struct bgList* tail = NULL;
 	size_t inputLength; 
@@ -63,9 +63,9 @@ int main(int argc, const char* argv[]) {
 			if (strncmp(userInput->command, cd, 2) == 0) {
 				changeDirs(userInput);
 			}
-			//else if (strncmp(userInput->command, status, 6) == 0) {
-				//printDir();
-			//}
+			else if (strcmp(userInput->command, stat) == 0) {
+			displayStatus(lastForegroundStatus);
+			}
 			else if (!(strncmp(userInput->command, comment, 1) == 0) && !(strncmp(userInput->command, newline, 1) == 0)) {
 				//printf("not comment, cd, pwd, or newline. gonna fork exec here.\n");
 				// fork new process
@@ -88,8 +88,8 @@ int main(int argc, const char* argv[]) {
 					// recommended use execlp() or execvp()
 					execvp(userInput->command, execArgs);
 					// exec returns if error
-					perror("execvp error\n");
-					exit(2);
+					perror("failed to exec() command...\n");
+					exit(1);
 					break;
 				default:
 					//parent process
@@ -97,6 +97,12 @@ int main(int argc, const char* argv[]) {
 					// foreground
 					if (!userInput->isBackground) {
 						childPid = waitpid(childPid, &childStatus, 0); // waits for child
+						if (WIFEXITED(childStatus)) {
+							lastForegroundStatus = WEXITSTATUS(childStatus);
+						}
+						else if (WIFSIGNALED(childStatus)) {
+							lastForegroundStatus = WTERMSIG(childStatus);
+						}
 					}
 					// if background, add to background list, and print pid
 					else if (userInput->isBackground) {
@@ -121,7 +127,13 @@ int main(int argc, const char* argv[]) {
 		while (node != NULL) {
 			int childPid = waitpid(node->pid, &childStatus, WNOHANG);
 			if (childPid) {
-				printf("Background process %d terminated with status %d\n", childPid, childStatus);
+				if (WIFEXITED(childStatus)) {
+					printf("Background process %d terminated with status %d\n", childPid, WEXITSTATUS(childStatus));
+				}
+				else if (WIFSIGNALED(childStatus)) {
+					printf("Background process %d terminated with signal %d\n", childPid, WTERMSIG(childStatus));
+				}
+				// note removal
 				bgPids->bgProcesses--;
 				// delete the node from the list
 				bgPids = removeFromBgList(bgPids, node);
@@ -168,8 +180,6 @@ struct userInput* parseInput(char* inputLine)
 	parsedInput->redirectOut = 0;
 	
 	// use strtok to parse the input line
-	//char* comment = "#";
-	//char* newline = "\n";
 	char* savePtr;
 	char* token = strtok_r(inputLine, " ", &savePtr);
 	// first input is the command
@@ -359,27 +369,6 @@ void printDir() {
 }
 
 
-//struct bgList* addBgList(struct bgList* head, struct bgList* tail, int childPid) {
-//	// if empty, create new first node
-//	if (head == NULL) {
-//		struct bgList* node = malloc(sizeof(struct bgList));
-//		node->pid = childPid;
-//		node->next = NULL;
-//		node->prev = NULL;
-//		head = node;
-//		tail = node;
-//	}
-//	else { // at least one node exists, grow the list
-//		struct bgList* node = malloc(sizeof(struct bgList));
-//		node->pid = childPid;
-//		node->next = NULL;
-//		// point prev tail to this new node
-//		tail->next = node; 
-//		tail = node; // set as new tail
-//	}
-//	return head;
-//}
-
 struct bgList* addToBgList(struct bgList* list, int childPid) {
 	if (list->head == NULL) {
 		struct bgListNode* node = malloc(sizeof(struct bgListNode));
@@ -430,34 +419,10 @@ struct bgList* removeFromBgList(struct bgList* list, struct bgListNode* deadNode
 
 }
 
-//struct bgList* removeNode(struct bgList* deadNode, struct bgList* head, struct bgList* tail) {
-//	// if has prev (not head), connect prev to next
-//	if (deadNode != head) {
-//		deadNode->prev->next = deadNode->next;
-//		// connect next to prev
-//		if (deadNode != tail) {
-//			deadNode->next->prev = deadNode->prev;
-//		}
-//		// if tail, set prev to new tail
-//		else {
-//			tail = deadNode->prev;
-//		}
-//	}
-//	// is head node
-//	else {
-//		if (deadNode != tail) {
-//			head = deadNode->next;
-//			head->prev = NULL;
-//		}
-//		// deadNode == head and tail (only node), set head and tail to null
-//		else {
-//			head = NULL;
-//			tail = NULL;
-//		}
-//	}
-//	free(deadNode);
-//	return head;
-//}
+
+void displayStatus(int status) {
+	printf("exit value: %d\n", status);
+}
 
 //  clean up the input  struct
 void freeInputStruct(struct userInput* inputStruct)
