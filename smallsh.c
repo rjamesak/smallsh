@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 struct userInput {
 	char* command;
@@ -38,6 +39,8 @@ void printDir();
 struct bgList* addToBgList(struct bgList* list, int childPid);
 struct bgList* removeFromBgList(struct bgList* list, struct bgListNode* deadNode);
 void displayStatus(int status);
+struct bgList* checkBgPs(struct bgList* list, int* childStatus);
+void reapTheKiddos(struct bgList* list);
 
 int main(int argc, const char* argv[]) {
 	// create a command line
@@ -120,37 +123,9 @@ int main(int argc, const char* argv[]) {
 			freeInputStruct(userInput); 
 		}; // end if userInput
 
-		// reap background processes and print when terminated here ? waitpid(...NOHANG...)
-		// loop background list, waitpid NOHANG
-		struct bgListNode* node = bgPids->head; // list iterator
-		int removed = 0;
-		while (node != NULL) {
-			int childPid = waitpid(node->pid, &childStatus, WNOHANG);
-			if (childPid) {
-				if (WIFEXITED(childStatus)) {
-					printf("Background process %d terminated with status %d\n", childPid, WEXITSTATUS(childStatus));
-				}
-				else if (WIFSIGNALED(childStatus)) {
-					printf("Background process %d terminated with signal %d\n", childPid, WTERMSIG(childStatus));
-				}
-				// note removal
-				bgPids->bgProcesses--;
-				// delete the node from the list
-				bgPids = removeFromBgList(bgPids, node);
-				//head = removeNode(node, head, tail);
-				removed = 1;
-			}
-			if (!removed) {
-				// continue with loop
-				node = node->next;
-			}
-			else {
-				// reset loop to beginning
-				node = bgPids->head;
-				removed = 0;
-			}
-		}
-
+		// reap background processes and print when terminated
+		// move to fn, send bgPids and pointer to childStatus, return bgPids
+		bgPids = checkBgPs(bgPids, &childStatus);
 
 		printf(": ");
 		getline(&input, &inputLength, stdin);
@@ -162,10 +137,11 @@ int main(int argc, const char* argv[]) {
 	//free(input);
 	free(input);
 	freeInputStruct(userInput);
-	free(bgPids);
 
 	// kill any running ps or jobs
+	reapTheKiddos(bgPids);
 
+	free(bgPids);
 }
 
 // receives the input line and parses the command
@@ -369,6 +345,40 @@ void printDir() {
 }
 
 
+struct bgList* checkBgPs(struct bgList* list, int* childStatus) {
+
+	// loop the bg process list and waitPid WNOHANG
+	struct bgListNode* node = list->head; // list iterator
+	int removed = 0;
+	while (node != NULL) {
+		int childPid = waitpid(node->pid, childStatus, WNOHANG);
+		if (childPid) {
+			if (WIFEXITED(*childStatus)) {
+				printf("Background process %d terminated with status %d\n", childPid, WEXITSTATUS(*childStatus));
+			}
+			else if (WIFSIGNALED(*childStatus)) {
+				printf("Background process %d terminated with signal %d\n", childPid, WTERMSIG(*childStatus));
+			}
+			// note removal
+			list->bgProcesses--;
+			// delete the node from the list
+			list = removeFromBgList(list, node);
+			removed = 1;
+		}
+		if (!removed) {
+			// continue with loop
+			node = node->next;
+		}
+		else {
+			// reset loop to beginning
+			node = list->head;
+			removed = 0;
+		}
+	}
+	return list;
+}
+
+
 struct bgList* addToBgList(struct bgList* list, int childPid) {
 	if (list->head == NULL) {
 		struct bgListNode* node = malloc(sizeof(struct bgListNode));
@@ -416,15 +426,22 @@ struct bgList* removeFromBgList(struct bgList* list, struct bgListNode* deadNode
 	}
 	free(deadNode);
 	return list;
-
 }
 
+void reapTheKiddos(struct bgList* list) {
+	struct bgListNode* node = list->head;
+	while (node != NULL) {
+		// itr and kill pids
+		kill(node->pid, SIGKILL);
+		node = node->next;
+	}
+}
 
 void displayStatus(int status) {
 	printf("exit value: %d\n", status);
 }
 
-//  clean up the input  struct
+//  clean up the input struct
 void freeInputStruct(struct userInput* inputStruct)
 {
 	// free the command
