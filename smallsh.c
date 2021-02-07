@@ -6,6 +6,9 @@
 #include <sys/wait.h>
 #include <signal.h>
 
+/***********************************************************
+* STRUCTS
+************************************************************/
 struct userInput {
 	char* command;
 	char** arguments;
@@ -29,6 +32,9 @@ struct bgList {
 	int bgProcesses;
 };
 
+/*******************************************************
+* FUNCTION DECLARATIONS
+*******************************************************/
 struct userInput* parseInput(char* inputLine);
 void freeInputStruct(struct userInput* inputStruct);
 void checkSpecialSymbols(struct userInput* inputStruct);
@@ -41,7 +47,17 @@ struct bgList* removeFromBgList(struct bgList* list, struct bgListNode* deadNode
 void displayStatus(int status);
 struct bgList* checkBgPs(struct bgList* list, int* childStatus);
 void reapTheKiddos(struct bgList* list);
+void handle_SIGTSTP(int signo); // https://repl.it/@cs344/53singal2c
+void toggleBackgroundMode();
 
+/****************************************************************
+	GLOBAL VARIABLES
+********************************************************/
+int g_bgMode = 1;
+
+/********************************************************************************
+	MAIN
+******************************************************************************/
 int main(int argc, const char* argv[]) {
 	// create a command line
 	char* input = NULL;
@@ -56,11 +72,23 @@ int main(int argc, const char* argv[]) {
 	bgPids->bgProcesses = 0;
 	int childStatus;
 	int lastForegroundStatus = 0;
-	//struct bgList* head = NULL;
-	//struct bgList* tail = NULL;
 	size_t inputLength; 
-	//ssize_t nread;
 	struct userInput* userInput = NULL;
+
+	// signal handling
+	// create the struct and fill it out
+	//dbl braces to quiet error: https://stackoverflow.com/questions/13746033/how-to-repair-warning-missing-braces-around-initializer
+	struct sigaction SIGINT_action = { {0} };
+	struct sigaction SIGTSTP_action = { {0} };
+	SIGINT_action.sa_handler = SIG_IGN;
+	SIGTSTP_action.sa_handler = handle_SIGTSTP;
+	// block all catchable signals while handling sigint
+	sigfillset(&SIGINT_action.sa_mask);
+	SIGTSTP_action.sa_flags = SA_RESTART; // necessary?
+	// install the signal handler
+	sigaction(SIGINT, &SIGINT_action, NULL);
+	sigaction(SIGTSTP, &SIGTSTP_action, NULL);
+
 	do {
 		if (userInput) { 
 			if (strncmp(userInput->command, cd, 2) == 0) {
@@ -70,7 +98,6 @@ int main(int argc, const char* argv[]) {
 			displayStatus(lastForegroundStatus);
 			}
 			else if (!(strncmp(userInput->command, comment, 1) == 0) && !(strncmp(userInput->command, newline, 1) == 0)) {
-				//printf("not comment, cd, pwd, or newline. gonna fork exec here.\n");
 				// fork new process
 				pid_t childPid = fork();
 				switch (childPid) {
@@ -79,6 +106,17 @@ int main(int argc, const char* argv[]) {
 					exit(1);
 					break;
 				case 0:; // https://www.educative.io/edpresso/resolving-the-a-label-can-only-be-part-of-a-statement-error
+					// child process
+					
+					// children should ignore SIGTSTP
+					SIGTSTP_action.sa_handler = SIG_IGN;
+					sigaction(SIGTSTP, &SIGTSTP_action, NULL);
+					// if foreground, set default handling of sigint
+					if (!userInput->isBackground) {
+						SIGINT_action.sa_handler = SIG_DFL;
+						sigaction(SIGINT, &SIGINT_action, NULL);
+					}
+
 					// run the command
 					// build the arg array, size of args + 1 for command + 1 for NULL
 					char** execArgs;
@@ -105,15 +143,29 @@ int main(int argc, const char* argv[]) {
 						}
 						else if (WIFSIGNALED(childStatus)) {
 							lastForegroundStatus = WTERMSIG(childStatus);
+							printf("\nForeground process terminated with signal %d\n", lastForegroundStatus);
 						}
 					}
 					// if background, add to background list, and print pid
 					else if (userInput->isBackground) {
+						
+						// signal handling
+						// create the struct and fill it out
+						//struct sigaction SIGINT_action = { 0 };
+						//SIGINT_action.sa_handler = handle_SIGINT;
+						SIGINT_action.sa_handler = SIG_IGN;
+						// block all catchable signals while handling sigint
+						//sigfillset(&SIGINT_action.sa_mask);
+						// SIGINT_action.sa_flags = SA_RESTART;
+						// install the signal handler
+						sigaction(SIGINT, &SIGINT_action, NULL);
+
 						// init list, add to bg list
 						bgPids = addToBgList(bgPids, childPid);
 						//head = addBgList(head, tail, childPid);
 						bgPids->bgProcesses++;
 						printf("Background Process %d started...\n", childPid);
+						fflush(stdin);
 					}
 					break;
 				}
@@ -128,6 +180,7 @@ int main(int argc, const char* argv[]) {
 		bgPids = checkBgPs(bgPids, &childStatus);
 
 		printf(": ");
+		fflush(stdin);
 		getline(&input, &inputLength, stdin);
 		userInput = parseInput(input);
 		// action based on input
@@ -143,7 +196,13 @@ int main(int argc, const char* argv[]) {
 
 	free(bgPids);
 }
+/****************************
+	END MAIN
+*****************************/
 
+/****************************************************************
+	FUNCTION IMPLEMENTATIONS
+****************************************************************/
 // receives the input line and parses the command
 // and arguments
 struct userInput* parseInput(char* inputLine)
@@ -246,10 +305,15 @@ void checkSpecialSymbols(struct userInput* inputStruct) {
 	}
 	else if (inputStruct->isBackground) {
 		free(inputStruct->arguments[lastArg]);
+		// account for not background mode
 	}
 
 	// dec args to account for special chars and filenames
 	inputStruct->argCount -= (redirectsIn + redirectsOut + inputStruct->isBackground);
+	// account for foreground mode only
+	if (!g_bgMode) {
+		inputStruct->isBackground = 0;
+	}
 }
 
 void expandVariables(struct userInput* inputStruct) {
@@ -341,6 +405,7 @@ void printDir() {
 	char curPath[512];
 	getcwd(curPath, sizeof(curPath));
 	printf("current directory: %s\n", curPath);
+	fflush(stdin);
 	return;
 }
 
@@ -355,9 +420,11 @@ struct bgList* checkBgPs(struct bgList* list, int* childStatus) {
 		if (childPid) {
 			if (WIFEXITED(*childStatus)) {
 				printf("Background process %d terminated with status %d\n", childPid, WEXITSTATUS(*childStatus));
+				fflush(stdin);
 			}
 			else if (WIFSIGNALED(*childStatus)) {
 				printf("Background process %d terminated with signal %d\n", childPid, WTERMSIG(*childStatus));
+				fflush(stdin);
 			}
 			// note removal
 			list->bgProcesses--;
@@ -439,6 +506,60 @@ void reapTheKiddos(struct bgList* list) {
 
 void displayStatus(int status) {
 	printf("exit value: %d\n", status);
+	fflush(stdin);
+}
+
+void toggleBackgroundMode() {
+	char* ignored = "& is now ignored\n";
+	char* notIgnored = "& is not ignored\n";
+
+	if (g_bgMode) {
+		g_bgMode = 0;
+		write(STDOUT_FILENO, ignored, 18);
+	}
+	else {
+		g_bgMode = 1;
+		write(STDOUT_FILENO, notIgnored, 18);
+	}
+}
+
+void handle_SIGTSTP(int signo) {
+	// toggle background mode
+	// print message saying & will be ignored
+	char* message = "\ntoggling background mode\n";
+	write(STDOUT_FILENO, message, 27);
+	toggleBackgroundMode();
+
+	//char* message = "foreground process terminated by signal ";
+	//char sigNum[7];
+	//// convert number to char
+	//int result;
+	//int counter = 0;
+	//while ((result = signo / 10) > 0) {
+	//	// get remainder into char
+	//	sigNum[counter] = (signo % 10) + 48;
+	//	counter++;
+	//	// check next number;
+	//	signo = result;
+	//}
+	//// get last number
+	//sigNum[counter] = (signo % 10) + 48;
+	//counter++;
+
+	//int sigMsgSize = counter + 1;
+	//// write message and signal number 
+	//write(STDOUT_FILENO, message, 41);
+	//// write the signo backwards
+	//char sigMessage[sigMsgSize];
+	//for (int i = 0; counter >= 0; i++) {
+	//	sigMessage[i] = sigNum[counter];
+	//	counter--;
+	//}
+	//char* newline = "\n";
+	//write(STDOUT_FILENO, sigMessage, sigMsgSize);
+	//write(STDOUT_FILENO, newline, 2);
+	char* shellPrompt = ": ";
+	write(STDOUT_FILENO, shellPrompt, 3);
 }
 
 //  clean up the input struct
