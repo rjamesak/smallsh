@@ -104,6 +104,7 @@ int main(int argc, const char* argv[]) {
 				switch (childPid) {
 				case -1:
 					perror("fork() failed\n");
+					fflush(stdout);
 					exit(1);
 					break;
 				case 0:; // https://www.educative.io/edpresso/resolving-the-a-label-can-only-be-part-of-a-statement-error
@@ -124,7 +125,9 @@ int main(int argc, const char* argv[]) {
 						int inputFD = open(userInput->inputFile, O_RDONLY);
 						if (inputFD == -1) {
 							printf("cannot open %s for input\n", userInput->inputFile);
+							fflush(stdout);
 							perror(userInput->inputFile);
+							fflush(stdout);
 							// how to handle the error?
 							exit(1);
 						}
@@ -132,6 +135,7 @@ int main(int argc, const char* argv[]) {
 						int inputResult = dup2(inputFD, 0);
 						if (inputResult == -1) {
 							perror("input dup2()");
+							fflush(stdout);
 							exit(1); // correct status for dup fail?
 						}
 					}
@@ -140,13 +144,52 @@ int main(int argc, const char* argv[]) {
 						int outputFD = open(userInput->outputFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 						if (outputFD == -1) {
 							printf("cannot open %s for output\n", userInput->outputFile);
+							fflush(stdout);
 							perror(userInput->outputFile);
+							fflush(stdout);
 							exit(1);
 						}
 						// dup2 outputFD to stdout
 						int outputResult = dup2(outputFD, 1);
 						if (outputResult == -1) {
 							perror("outputFD dup2()");
+							fflush(stdout);
+							exit(1); // correct?
+						}
+					}
+					// redirect input from /dev/null if bg and not redirected already
+					if (userInput->isBackground && !userInput->redirectIn) {
+						int inputDevNullFD = open("/dev/null", O_RDONLY);
+						if (inputDevNullFD == -1) {
+							printf("cannot open /dev/null for input\n");
+							fflush(stdout);
+							perror("input dev null");
+							fflush(stdout);
+							exit(1);
+						}
+						int devNullInputResult = dup2(inputDevNullFD, 0);
+						if (devNullInputResult == -1) {
+							perror("/dev/null input dup2()");
+							fflush(stdout);
+							exit(1);
+						}
+					}
+					// redirect to /dev/null if bg and not redirected already
+					if (userInput->isBackground && !userInput->redirectOut) {
+						// open the output file
+						int outputFD = open("/dev/null", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+						if (outputFD == -1) {
+							printf("cannot open /dev/null for output\n");
+							fflush(stdout);
+							perror("/dev/null open");
+							fflush(stdout);
+							exit(1);
+						}
+						// dup2 outputFD to stdout
+						int outputResult = dup2(outputFD, 1);
+						if (outputResult == -1) {
+							perror("/dev/null dup2()");
+							fflush(stdout);
 							exit(1); // correct?
 						}
 					}
@@ -165,6 +208,7 @@ int main(int argc, const char* argv[]) {
 					execvp(userInput->command, execArgs);
 					// exec returns if error
 					perror("failed to exec() command... ");
+					fflush(stdout);
 					exit(1);
 					break;
 				default:
@@ -179,6 +223,7 @@ int main(int argc, const char* argv[]) {
 						else if (WIFSIGNALED(childStatus)) {
 							lastForegroundStatus = WTERMSIG(childStatus);
 							printf("\nForeground process terminated with signal %d\n", lastForegroundStatus);
+							fflush(stdout);
 						}
 					}
 					// if background, add to background list, and print pid
@@ -306,9 +351,6 @@ void checkSpecialSymbols(struct userInput* inputStruct) {
 			// copy file to input file
 			inputStruct->inputFile = strdup(inputStruct->arguments[i+1]);
 			redirectsIn = 2; // will reduce args by this number
-			// null these from the arg array
-			//inputStruct->arguments[i] = "\0";
-			//inputStruct->arguments[i + 1] = "\0";
 		}
 		// output redirect
 		if (strcmp(inputStruct->arguments[i], greater) == 0) {
@@ -316,8 +358,6 @@ void checkSpecialSymbols(struct userInput* inputStruct) {
 			inputStruct->redirectOut = 1;
 			inputStruct->outputFile = strdup(inputStruct->arguments[i + 1]);
 			redirectsOut = 2;
-			//inputStruct->arguments[i] = "\0";
-			//inputStruct->arguments[i + 1] = "\0";
 		}
 	}
 
@@ -364,6 +404,7 @@ void expandVariables(struct userInput* inputStruct) {
 			// get pid and convert to string
 			int pid = getpid();
 			sprintf(pidString, "%d", pid);
+			fflush(stdout); //TESTING
 			
 			// copy prefix and expanded variable
 			char* newWord = calloc(strlen(inputStruct->arguments[i]) + strlen(pidString), sizeof(char));
@@ -391,6 +432,7 @@ void expandVarInCommand(struct userInput* inputStruct) {
 			// get pid and convert to string
 			int pid = getpid();
 			sprintf(pidString, "%d", pid);
+			fflush(stdout); //TESTING
 			// copy prefix and expanded variable
 			char* newWord = calloc(strlen(inputStruct->command) + strlen(pidString), sizeof(char));
 			strncpy(newWord, inputStruct->command,  prefixLength);
@@ -419,16 +461,18 @@ void changeDirs(struct userInput* userInput) {
 		result  = chdir(homePath);
 		if (result == -1) {
 			perror("unable to change to home path\n");
+			fflush(stdout); //TESTING
 		}
-		printDir();
+		//printDir();
 	}
 	// if  arg, change to the specified directory, absolute  or relative paths
 	else  if (userInput->argCount) {
 		result = chdir(userInput->arguments[0]);
 		if (result == -1) {
 			perror("unable to change to directory\n");
+			fflush(stdout); //TESTING
 		}
-		printDir();
+		//printDir();
 
 	}
 
