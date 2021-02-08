@@ -565,34 +565,6 @@ void handle_SIGTSTP(int signo) {
 	write(STDOUT_FILENO, message, 27);
 	toggleBackgroundMode();
 
-	//char* message = "foreground process terminated by signal ";
-	//char sigNum[7];
-	//// convert number to char
-	//int result;
-	//int counter = 0;
-	//while ((result = signo / 10) > 0) {
-	//	// get remainder into char
-	//	sigNum[counter] = (signo % 10) + 48;
-	//	counter++;
-	//	// check next number;
-	//	signo = result;
-	//}
-	//// get last number
-	//sigNum[counter] = (signo % 10) + 48;
-	//counter++;
-
-	//int sigMsgSize = counter + 1;
-	//// write message and signal number 
-	//write(STDOUT_FILENO, message, 41);
-	//// write the signo backwards
-	//char sigMessage[sigMsgSize];
-	//for (int i = 0; counter >= 0; i++) {
-	//	sigMessage[i] = sigNum[counter];
-	//	counter--;
-	//}
-	//char* newline = "\n";
-	//write(STDOUT_FILENO, sigMessage, sigMsgSize);
-	//write(STDOUT_FILENO, newline, 2);
 	char* shellPrompt = ": ";
 	write(STDOUT_FILENO, shellPrompt, 3);
 }
