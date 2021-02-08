@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <fcntl.h>
 
 /***********************************************************
 * STRUCTS
@@ -117,6 +118,40 @@ int main(int argc, const char* argv[]) {
 						sigaction(SIGINT, &SIGINT_action, NULL);
 					}
 
+					// setup redirects if necessary
+					if (userInput->redirectIn) {
+						// open the input file
+						int inputFD = open(userInput->inputFile, O_RDONLY);
+						if (inputFD == -1) {
+							printf("cannot open %s for input\n", userInput->inputFile);
+							perror(userInput->inputFile);
+							// how to handle the error?
+							exit(1);
+						}
+						// dup2 the input file to stdin
+						int inputResult = dup2(inputFD, 0);
+						if (inputResult == -1) {
+							perror("input dup2()");
+							exit(1); // correct status for dup fail?
+						}
+					}
+					if (userInput->redirectOut) {
+						// open the output file
+						int outputFD = open(userInput->outputFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+						if (outputFD == -1) {
+							printf("cannot open %s for output\n", userInput->outputFile);
+							perror(userInput->outputFile);
+							exit(1);
+						}
+						// dup2 outputFD to stdout
+						int outputResult = dup2(outputFD, 1);
+						if (outputResult == -1) {
+							perror("outputFD dup2()");
+							exit(1); // correct?
+						}
+					}
+
+
 					// run the command
 					// build the arg array, size of args + 1 for command + 1 for NULL
 					char** execArgs;
@@ -129,7 +164,7 @@ int main(int argc, const char* argv[]) {
 					// recommended use execlp() or execvp()
 					execvp(userInput->command, execArgs);
 					// exec returns if error
-					perror("failed to exec() command...\n");
+					perror("failed to exec() command... ");
 					exit(1);
 					break;
 				default:
@@ -165,7 +200,7 @@ int main(int argc, const char* argv[]) {
 						//head = addBgList(head, tail, childPid);
 						bgPids->bgProcesses++;
 						printf("Background Process %d started...\n", childPid);
-						fflush(stdin);
+						fflush(stdout);
 					}
 					break;
 				}
@@ -180,7 +215,7 @@ int main(int argc, const char* argv[]) {
 		bgPids = checkBgPs(bgPids, &childStatus);
 
 		printf(": ");
-		fflush(stdin);
+		fflush(stdout);
 		getline(&input, &inputLength, stdin);
 		userInput = parseInput(input);
 		// action based on input
@@ -405,7 +440,7 @@ void printDir() {
 	char curPath[512];
 	getcwd(curPath, sizeof(curPath));
 	printf("current directory: %s\n", curPath);
-	fflush(stdin);
+	fflush(stdout);
 	return;
 }
 
@@ -420,11 +455,11 @@ struct bgList* checkBgPs(struct bgList* list, int* childStatus) {
 		if (childPid) {
 			if (WIFEXITED(*childStatus)) {
 				printf("Background process %d terminated with status %d\n", childPid, WEXITSTATUS(*childStatus));
-				fflush(stdin);
+				fflush(stdout);
 			}
 			else if (WIFSIGNALED(*childStatus)) {
 				printf("Background process %d terminated with signal %d\n", childPid, WTERMSIG(*childStatus));
-				fflush(stdin);
+				fflush(stdout);
 			}
 			// note removal
 			list->bgProcesses--;
@@ -506,7 +541,7 @@ void reapTheKiddos(struct bgList* list) {
 
 void displayStatus(int status) {
 	printf("exit value: %d\n", status);
-	fflush(stdin);
+	fflush(stdout);
 }
 
 void toggleBackgroundMode() {
