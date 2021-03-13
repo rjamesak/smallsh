@@ -1,3 +1,13 @@
+/***********************************************
+CS344 programming assignment 3, smallsh
+Author: Rusell James
+This is a shell program that allows a user 
+to run commands. cd, exit and status have been 
+implemented here, other programs are forked and 
+executed in child processes.
+*********************************************/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -584,8 +594,17 @@ void reapTheKiddos(struct bgList* list) {
 }
 
 void displayStatus(int status) {
-	printf("exit value: %d\n", status);
-	fflush(stdout);
+	//printf("exit value: %d\n", status);
+	//fflush(stdout);
+	if (WIFEXITED(status)) {
+		printf("exited with status %d\n", WEXITSTATUS(status));
+		fflush(stdout);
+	}
+	else if (WIFSIGNALED(status)) {
+		printf("terminated with signal %d\n", WTERMSIG(status) );
+		fflush(stdout);
+	}
+
 }
 
 void toggleBackgroundMode() {

@@ -1,5 +1,5 @@
 ## Russell James Makefile
-#CS 261, Winter 2019
+#CS 344, Winter 2021
 
 ## variables for filenames
 prog1 = smallsh
